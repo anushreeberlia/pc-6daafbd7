@@ -10,21 +10,56 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { RootStackParamList, WorkoutRecord, ExerciseStats } from '../App';
+import { RootStackParamList, WorkoutRecord, ExerciseStats, MuscleGroup } from '../App';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
+interface MuscleGroupOption {
+  id: MuscleGroup;
+  name: string;
+  emoji: string;
+  description: string;
+}
+
+const MUSCLE_GROUP_OPTIONS: MuscleGroupOption[] = [
+  { id: 'chest', name: 'Chest', emoji: '💪', description: 'Pectorals & Push' },
+  { id: 'back', name: 'Back', emoji: '🔙', description: 'Lats & Pull' },
+  { id: 'legs', name: 'Legs', emoji: '🦵', description: 'Quads, Glutes & Calves' },
+  { id: 'shoulders', name: 'Shoulders', emoji: '🏋️', description: 'Deltoids & Traps' },
+  { id: 'arms', name: 'Arms', emoji: '💪', description: 'Biceps & Triceps' },
+  { id: 'core', name: 'Core', emoji: '🔥', description: 'Abs & Obliques' },
+  { id: 'full-body', name: 'Full Body', emoji: '🏃', description: 'Complete Workout' },
+  { id: 'upper-body', name: 'Upper Body', emoji: '💪', description: 'Chest, Back, Arms' },
+  { id: 'lower-body', name: 'Lower Body', emoji: '🦵', description: 'Legs & Glutes' },
+];
+
+interface WorkoutCycle {
+  completedGroups: MuscleGroup[];
+  currentCycle: number;
+  lastWorkoutDate: string;
+}
+
 const HomeScreen: React.FC<Props> = ({ navigation }) => {
   const [timeInput, setTimeInput] = useState('');
+  const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<MuscleGroup | null>(null);
   const [stats, setStats] = useState<ExerciseStats[]>([]);
   const [totalWorkouts, setTotalWorkouts] = useState(0);
   const [lastWorkoutDate, setLastWorkoutDate] = useState<string | null>(null);
+  const [workoutCycle, setWorkoutCycle] = useState<WorkoutCycle>({
+    completedGroups: [],
+    currentCycle: 1,
+    lastWorkoutDate: '',
+  });
+  const [suggestedMuscleGroup, setSuggestedMuscleGroup] = useState<MuscleGroup | null>(null);
+  const [showMuscleGroupSelector, setShowMuscleGroupSelector] = useState(false);
 
   const loadStats = async () => {
     try {
       const storedHistory = await AsyncStorage.getItem('workoutHistory');
+      const storedCycle = await AsyncStorage.getItem('workoutCycle');
+      
       if (storedHistory) {
         const history: WorkoutRecord[] = JSON.parse(storedHistory);
         
@@ -50,7 +85,7 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               totalSessions: 1,
               bestWeight,
               bestReps,
-              category: '', // Will be filled from exercise data
+              category: record.category || '',
             });
           }
         });
@@ -66,8 +101,37 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
           setLastWorkoutDate(mostRecent);
         }
       }
+      
+      // Load workout cycle
+      if (storedCycle) {
+        const cycle: WorkoutCycle = JSON.parse(storedCycle);
+        setWorkoutCycle(cycle);
+        calculateSuggestedMuscleGroup(cycle);
+      } else {
+        // Initialize cycle for first time users
+        const initialCycle: WorkoutCycle = {
+          completedGroups: [],
+          currentCycle: 1,
+          lastWorkoutDate: '',
+        };
+        setWorkoutCycle(initialCycle);
+        calculateSuggestedMuscleGroup(initialCycle);
+      }
     } catch (error) {
       console.error('Error loading stats:', error);
+    }
+  };
+
+  const calculateSuggestedMuscleGroup = (cycle: WorkoutCycle) => {
+    const primaryGroups: MuscleGroup[] = ['chest', 'back', 'legs', 'shoulders', 'arms', 'core'];
+    const remainingGroups = primaryGroups.filter(group => !cycle.completedGroups.includes(group));
+    
+    if (remainingGroups.length > 0) {
+      // Suggest the first remaining group in the cycle
+      setSuggestedMuscleGroup(remainingGroups[0]);
+    } else {
+      // All groups completed, start new cycle
+      setSuggestedMuscleGroup('chest'); // Start with chest for new cycle
     }
   };
 
@@ -86,7 +150,18 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     if (timeMinutes > 180) {
       Alert.alert('Long Workout', 'Consider breaking this into multiple sessions for better results.');
     }
-    navigation.navigate('Workout', { timeMinutes });
+    
+    const targetMuscleGroup = selectedMuscleGroup || suggestedMuscleGroup;
+    navigation.navigate('Workout', { timeMinutes, targetMuscleGroup });
+  };
+
+  const selectMuscleGroup = (group: MuscleGroup) => {
+    setSelectedMuscleGroup(group);
+    setShowMuscleGroupSelector(false);
+  };
+
+  const clearMuscleGroupSelection = () => {
+    setSelectedMuscleGroup(null);
   };
 
   const quickWorkoutOptions = [15, 30, 45, 60, 90];
@@ -102,12 +177,26 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
     return date.toLocaleDateString();
   };
 
+  const getMuscleGroupName = (group: MuscleGroup) => {
+    return MUSCLE_GROUP_OPTIONS.find(option => option.id === group)?.name || group;
+  };
+
+  const getMuscleGroupEmoji = (group: MuscleGroup) => {
+    return MUSCLE_GROUP_OPTIONS.find(option => option.id === group)?.emoji || '💪';
+  };
+
+  const getCycleProgress = () => {
+    const totalGroups = 6; // chest, back, legs, shoulders, arms, core
+    const completed = workoutCycle.completedGroups.length;
+    return `${completed}/${totalGroups}`;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Text style={styles.title}>Ready to Train?</Text>
-          <Text style={styles.subtitle}>AI-powered workouts based on your history</Text>
+          <Text style={styles.subtitle}>AI-powered workouts with muscle group cycling</Text>
         </View>
 
         {totalWorkouts > 0 && (
@@ -129,6 +218,22 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
                 <Text style={styles.statLabel}>Last\nWorkout</Text>
               </View>
             </View>
+            
+            {workoutCycle.completedGroups.length > 0 && (
+              <View style={styles.cycleProgress}>
+                <Text style={styles.cycleTitle}>Current Cycle Progress</Text>
+                <Text style={styles.cycleText}>Cycle {workoutCycle.currentCycle} - {getCycleProgress()} muscle groups completed</Text>
+                <View style={styles.completedGroups}>
+                  {workoutCycle.completedGroups.map(group => (
+                    <View key={group} style={styles.completedGroupBadge}>
+                      <Text style={styles.completedGroupText}>
+                        {getMuscleGroupEmoji(group)} {getMuscleGroupName(group)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
           </View>
         )}
 
@@ -142,9 +247,68 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
             placeholder="Enter minutes"
             placeholderTextColor="#9ca3af"
           />
+          
+          {/* Muscle Group Selection */}
+          <View style={styles.muscleGroupSection}>
+            <Text style={styles.label}>Target Muscle Group:</Text>
+            
+            {suggestedMuscleGroup && !selectedMuscleGroup && (
+              <View style={styles.suggestedGroup}>
+                <Text style={styles.suggestedTitle}>🎯 Suggested (Smart Cycling):</Text>
+                <View style={styles.suggestedGroupCard}>
+                  <Text style={styles.suggestedGroupText}>
+                    {getMuscleGroupEmoji(suggestedMuscleGroup)} {getMuscleGroupName(suggestedMuscleGroup)}
+                  </Text>
+                  <Text style={styles.suggestedReason}>
+                    Next in your training cycle
+                  </Text>
+                </View>
+              </View>
+            )}
+            
+            {selectedMuscleGroup ? (
+              <View style={styles.selectedGroupCard}>
+                <Text style={styles.selectedGroupText}>
+                  {getMuscleGroupEmoji(selectedMuscleGroup)} {getMuscleGroupName(selectedMuscleGroup)}
+                </Text>
+                <TouchableOpacity 
+                  style={styles.changeGroupButton}
+                  onPress={clearMuscleGroupSelection}
+                >
+                  <Text style={styles.changeGroupText}>Change</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity 
+                style={styles.selectGroupButton}
+                onPress={() => setShowMuscleGroupSelector(!showMuscleGroupSelector)}
+              >
+                <Text style={styles.selectGroupText}>
+                  {showMuscleGroupSelector ? 'Hide Options' : 'Choose Specific Group'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            
+            {showMuscleGroupSelector && (
+              <View style={styles.muscleGroupGrid}>
+                {MUSCLE_GROUP_OPTIONS.map(option => (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={styles.muscleGroupOption}
+                    onPress={() => selectMuscleGroup(option.id)}
+                  >
+                    <Text style={styles.muscleGroupEmoji}>{option.emoji}</Text>
+                    <Text style={styles.muscleGroupName}>{option.name}</Text>
+                    <Text style={styles.muscleGroupDesc}>{option.description}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+          
           <TouchableOpacity style={styles.startButton} onPress={handleStartWorkout}>
             <Text style={styles.startButtonText}>
-              {totalWorkouts > 0 ? 'Generate Smart Workout' : 'Generate Workout'}
+              {selectedMuscleGroup ? 'Generate Custom Workout' : 'Generate Smart Workout'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -156,7 +320,10 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
               <TouchableOpacity
                 key={minutes}
                 style={styles.quickButton}
-                onPress={() => navigation.navigate('Workout', { timeMinutes: minutes })}
+                onPress={() => {
+                  const targetMuscleGroup = selectedMuscleGroup || suggestedMuscleGroup;
+                  navigation.navigate('Workout', { timeMinutes: minutes, targetMuscleGroup });
+                }}
               >
                 <Text style={styles.quickButtonText}>{minutes}m</Text>
               </TouchableOpacity>
@@ -166,11 +333,16 @@ const HomeScreen: React.FC<Props> = ({ navigation }) => {
 
         {totalWorkouts > 0 && (
           <View style={styles.recommendationCard}>
-            <Text style={styles.recommendationTitle}>💡 Smart Recommendations</Text>
+            <Text style={styles.recommendationTitle}>💡 Smart Cycling System</Text>
             <Text style={styles.recommendationText}>
-              Based on your history, we'll prioritize muscle groups you haven't trained recently
-              and suggest weights based on your previous performances.
+              Our AI ensures balanced training by cycling through all muscle groups. 
+              Once you complete all 6 primary muscle groups, a new cycle begins with progressive difficulty.
             </Text>
+            {workoutCycle.completedGroups.length === 6 && (
+              <Text style={styles.cycleCompleteText}>
+                🎉 Cycle {workoutCycle.currentCycle} Complete! Ready for the next level.
+              </Text>
+            )}
           </View>
         )}
 
@@ -234,6 +406,7 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    marginBottom: 16,
   },
   statItem: {
     alignItems: 'center',
@@ -249,6 +422,41 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     textAlign: 'center',
     lineHeight: 16,
+  },
+  cycleProgress: {
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 16,
+  },
+  cycleTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  cycleText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  completedGroups: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  completedGroupBadge: {
+    backgroundColor: '#d1fae5',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  completedGroupText: {
+    fontSize: 12,
+    color: '#065f46',
+    fontWeight: '500',
   },
   inputSection: {
     marginHorizontal: 20,
@@ -268,6 +476,104 @@ const styles = StyleSheet.create({
     padding: 16,
     fontSize: 18,
     marginBottom: 16,
+    textAlign: 'center',
+  },
+  muscleGroupSection: {
+    marginBottom: 16,
+  },
+  suggestedGroup: {
+    marginBottom: 12,
+  },
+  suggestedTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#059669',
+    marginBottom: 8,
+  },
+  suggestedGroupCard: {
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#bbf7d0',
+  },
+  suggestedGroupText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#065f46',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  suggestedReason: {
+    fontSize: 14,
+    color: '#059669',
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  selectedGroupCard: {
+    backgroundColor: '#dbeafe',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#93c5fd',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectedGroupText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1d4ed8',
+  },
+  changeGroupButton: {
+    backgroundColor: '#2563eb',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  changeGroupText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  selectGroupButton: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+  },
+  selectGroupText: {
+    color: '#374151',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  muscleGroupGrid: {
+    marginTop: 12,
+    gap: 12,
+  },
+  muscleGroupOption: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+  },
+  muscleGroupEmoji: {
+    fontSize: 24,
+    marginBottom: 8,
+  },
+  muscleGroupName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1f2937',
+    marginBottom: 4,
+  },
+  muscleGroupDesc: {
+    fontSize: 12,
+    color: '#6b7280',
     textAlign: 'center',
   },
   startButton: {
@@ -335,6 +641,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#1e40af',
     lineHeight: 20,
+    marginBottom: 8,
+  },
+  cycleCompleteText: {
+    fontSize: 14,
+    color: '#059669',
+    fontWeight: '600',
+    textAlign: 'center',
+    backgroundColor: '#f0fdf4',
+    padding: 8,
+    borderRadius: 8,
   },
   historyButton: {
     backgroundColor: '#10b981',

@@ -10,9 +10,11 @@ import WorkoutScreen from './screens/WorkoutScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import RepCounterScreen from './screens/RepCounterScreen';
 
+export type MuscleGroup = 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core' | 'full-body' | 'upper-body' | 'lower-body';
+
 export type RootStackParamList = {
   Home: undefined;
-  Workout: { timeMinutes: number };
+  Workout: { timeMinutes: number; targetMuscleGroup?: MuscleGroup | null };
   History: undefined;
   RepCounter: { 
     exercise: Exercise;
@@ -23,7 +25,7 @@ export type RootStackParamList = {
 export interface Exercise {
   id: string;
   name: string;
-  category: 'chest' | 'back' | 'legs' | 'shoulders' | 'arms' | 'core';
+  category: MuscleGroup;
   timeMinutes: number;
   equipment?: string;
   instructions?: string;
@@ -38,6 +40,7 @@ export interface WorkoutRecord {
   id: string;
   exerciseId: string;
   exerciseName: string;
+  category: MuscleGroup;
   date: string;
   sets: WorkoutSet[];
 }
